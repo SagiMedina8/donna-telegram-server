@@ -346,7 +346,9 @@ def cmd_help(chat_id: int):
 /עזרה — התפריט הזה"""
     tg_client.send(chat_id, text)
 
-
+def cmd_chatid(chat_id: int):
+    """/chatid — show your chat ID."""
+    tg_client.send(chat_id, f"ה-Chat ID שלך: <code>{chat_id}</code>")
 # ═══════════════════════════════════════════════════
 #  CALLBACKS (button clicks)
 # ═══════════════════════════════════════════════════
