@@ -8,8 +8,7 @@ import telegram_client as tg_client
 import formatters as fmt
 import state
 from llm import digest_to_plan
-from config import DB_NAME_MAP
-    db_id = DB_NAME_MAP.get(target, "")
+from config import DB_NAME_MAP, NOTION_TOKEN
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from config import OWNER_CHAT_ID, TIMEZONE
@@ -294,12 +293,26 @@ def _propose_people_update(chat_id: int, person_name: str, field: str, op: str, 
 # ═══════════════════════════════════════════════════
 #  SCHEMA / DIAGNOSTICS
 # ═══════════════════════════════════════════════════
-
 def cmd_schema(chat_id: int, target: str):
     """/schema <db_name>"""
     if not NOTION_TOKEN:
         tg_client.send(chat_id, "חסר NOTION_TOKEN.")
         return
+
+    db_id = DB_NAME_MAP.get(target.strip().lower(), "")
+    if not db_id:
+        tg_client.send(chat_id, "שימוש:\n/schema people|meetings|projects|inbox|משימות")
+        return
+
+    try:
+        schema = notion.get_schema(target)
+        if schema is None:
+            tg_client.send(chat_id, "לא הצלחתי לשלוף סכימה.")
+            return
+        lines = [f"- {name}: {ptype}" for name, ptype in schema.items()]
+        tg_client.send(chat_id, "Schema:\n" + "\n".join(lines[:60]))
+    except Exception as e:
+        tg_client.send(chat_id, f"שגיאה: {e}")
 
     schema = notion.get_schema(target)
     if schema is None:
