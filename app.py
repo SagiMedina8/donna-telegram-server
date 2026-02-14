@@ -1,23 +1,21 @@
 """
 Donna Agent — Main Application
-Flask webhook routes and command routing.
+Flask webhook routes, command routing, and cron endpoints.
 """
 import os
 from flask import Flask, request
 import commands
 import state
-from config import validate_env
+from config import validate_env, OWNER_CHAT_ID
 
 app = Flask(__name__)
 
-# ─── Startup validation ───
+# Startup validation
 missing = validate_env()
 if missing:
     print(f"⚠️  Missing env vars: {', '.join(missing)}")
-    print("The server will start but some features won't work.")
 
-# ─── Command routing table (Hebrew) ───
-# Maps command prefix -> (handler_function, needs_argument)
+# Command routing table (Hebrew + English aliases)
 COMMAND_MAP = {
     "/מי":      (commands.cmd_who,      True),
     "/היום":    (commands.cmd_today,     False),
@@ -27,17 +25,14 @@ COMMAND_MAP = {
     "/עזרה":   (commands.cmd_help,      False),
     "/סטטוס":  (commands.cmd_status,    False),
     "/schema":  (commands.cmd_schema,    True),
-    "/chatid":  (commands.cmd_chatid,   False),
-    # aliases
+    "/chatid":  (commands.cmd_chatid,    False),
     "/help":    (commands.cmd_help,      False),
     "/status":  (commands.cmd_status,    False),
     "/digest":  (commands.cmd_digest,    True),
 }
 
 
-def route_command(chat_id: int, text: str):
-    """Parse message text and call the right command handler."""
-    # Try each command prefix
+def route_command(chat_id: int, text: str) -> bool:
     for prefix, (handler, needs_arg) in COMMAND_MAP.items():
         if text == prefix or text.startswith(prefix + " ") or text.startswith(prefix + "\n"):
             if needs_arg:
@@ -53,7 +48,7 @@ def route_command(chat_id: int, text: str):
 def telegram_webhook():
     update = request.get_json(silent=True) or {}
 
-    # ─── A) Button clicks ───
+    # A) Button clicks
     if "callback_query" in update:
         cq = update["callback_query"]
         data = cq.get("data", "")
@@ -62,7 +57,7 @@ def telegram_webhook():
         commands.handle_callback(callback_id, data, chat_id)
         return {"ok": True}
 
-    # ─── B) Messages ───
+    # B) Messages
     msg = update.get("message")
     if not msg:
         return {"ok": True}
@@ -70,7 +65,6 @@ def telegram_webhook():
     chat_id = msg["chat"]["id"]
     message_id = msg.get("message_id")
 
-    # Dedup
     if state.is_duplicate(chat_id, message_id):
         return {"ok": True}
 
@@ -78,11 +72,32 @@ def telegram_webhook():
     if not text:
         return {"ok": True}
 
-    # Try to match a command
-    if not route_command(chat_id, text):
-        # Default: show help
-        commands.cmd_help(chat_id)
+    # Try slash commands first
+    if text.startswith("/"):
+        if not route_command(chat_id, text):
+            commands.cmd_help(chat_id)
+        return {"ok": True}
 
+    # Natural language — intent router
+    commands.handle_natural_text(chat_id, text)
+    return {"ok": True}
+
+
+# ─── Cron Endpoints ───
+
+@app.get("/cron/morning")
+def cron_morning():
+    """Called by external cron at 8:00 AM Israel time."""
+    if OWNER_CHAT_ID:
+        commands.send_morning_brief(OWNER_CHAT_ID)
+    return {"ok": True}
+
+
+@app.get("/cron/followup")
+def cron_followup():
+    """Called every 10 minutes by external cron."""
+    if OWNER_CHAT_ID:
+        commands.check_ended_meetings(OWNER_CHAT_ID)
     return {"ok": True}
 
 
