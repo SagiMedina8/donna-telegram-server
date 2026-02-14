@@ -177,6 +177,19 @@ def telegram_webhook():
 
     # ---- Commands ----
     # 1) /schema <people|meetings|projects|inbox>
+    if text.lower().startswith("/diag"):
+        flags = {
+            "NOTION_TOKEN": bool(NOTION_TOKEN),
+            "NOTION_PEOPLE_DB_ID": bool(NOTION_PEOPLE_DB_ID),
+            "NOTION_MEETINGS_DB_ID": bool(NOTION_MEETINGS_DB_ID),
+            "NOTION_PROJECTS_DB_ID": bool(NOTION_PROJECTS_DB_ID),
+            "NOTION_DONNA_INBOX_DB_ID": bool(NOTION_DONNA_INBOX_DB_ID),
+        }
+        lines = [f"- {k}: {'OK' if v else 'MISSING'}" for k, v in flags.items()]
+        send_message(chat_id, "Diag:\n" + "\n".join(lines))
+        return {"ok": True}
+
+    
     if text.lower().startswith("/schema"):
         parts = text.split(maxsplit=1)
         if len(parts) < 2:
@@ -268,6 +281,8 @@ def telegram_webhook():
     # Default
     send_message(chat_id, "קיבלתי.\nפקודות זמינות:\n/schema people|meetings|projects|inbox\n/inbox <טקסט>\n/approve_demo")
     return {"ok": True}
+
+
 
 @app.get("/")
 def health():
