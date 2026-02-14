@@ -8,12 +8,8 @@ import telegram_client as tg_client
 import formatters as fmt
 import state
 from llm import digest_to_plan
-from config import (
-    NOTION_TOKEN, OPENAI_API_KEY,
-    NOTION_PEOPLE_DB_ID, NOTION_MEETINGS_DB_ID,
-    NOTION_PROJECTS_DB_ID, NOTION_DONNA_INBOX_DB_ID,
-    DB_NAME_MAP,
-)
+from config import DB_NAME_MAP
+    db_id = DB_NAME_MAP.get(target, "")
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from config import OWNER_CHAT_ID, TIMEZONE
