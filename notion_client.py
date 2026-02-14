@@ -163,11 +163,10 @@ def query_meetings_by_date(date_str: str) -> list[dict]:
     body = {
         "page_size": 25,
         "filter": {
-            "property": "תאריך",
-            "date": {
-                "on_or_after": date_str,
-                "before": next_day,
-            },
+            "and": [
+                {"property": "תאריך", "date": {"on_or_after": date_str}},
+                {"property": "תאריך", "date": {"before": next_day}},
+            ]
         },
         "sorts": [{"property": "תאריך", "direction": "ascending"}],
     }
