@@ -104,3 +104,75 @@ def digest_to_plan(user_text: str) -> dict:
                 return json.loads(c["text"])
 
     raise RuntimeError("OpenAI response had no parsable JSON")
+
+def classify_intent(user_text: str, context: dict | None = None) -> dict:
+    """
+    Classify free text into an intent + extracted entity.
+    Returns: {"intent": str, "entity": str, "raw": str}
+    Intents: who, today, tomorrow, meeting, digest, help, chat, unknown
+    """
+    ctx_hint = ""
+    if context:
+        ctx_hint = f"\nהקשר קודם: הנושא היה '{context.get('topic', '')}' על '{context.get('entity', '')}'"
+
+    system = f"""אתה ממיין הודעות. החזר JSON בלבד.
+הודעה מהמשתמש -> intent + entity.
+
+Intents אפשריים:
+- "who": שאלה על אדם (מי זה X, ספר לי על X, מה אני יודע על X)
+- "today": פגישות היום (מה יש לי היום, איזה פגישות, לוז היום)
+- "tomorrow": פגישות מחר
+- "meeting": חיפוש פגישה ספציפית (מה הפגישה ב-11, הפגישה עם X)
+- "digest": סיכום/עדכון People (נפגשתי עם X, הוא אוהב Y, עדכן את Z)
+- "help": עזרה, מה אתה יכול לעשות
+- "followup_answer": תשובה לשאלת פולואפ (סיכום פגישה, מה היה)
+- "chat": שיחה כללית, שלום, מה שלומך
+- "unknown": לא ברור
+{ctx_hint}
+החזר רק: {{"intent": "...", "entity": "...", "raw": "..."}}
+entity = השם/נושא שחולץ (או "" אם אין).
+raw = הטקסט המקורי."""
+
+    body = {
+        "model": OPENAI_MODEL,
+        "input": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_text},
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "IntentClassification",
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "intent": {"type": "string", "enum": [
+                            "who", "today", "tomorrow", "meeting",
+                            "digest", "help", "followup_answer", "chat", "unknown"
+                        ]},
+                        "entity": {"type": "string"},
+                        "raw": {"type": "string"},
+                    },
+                    "required": ["intent", "entity", "raw"],
+                },
+                "strict": True,
+            }
+        },
+        "max_output_tokens": 150,
+    }
+
+    r = requests.post(f"{OPENAI_BASE}/responses", headers=_headers(), json=body, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+
+    out = data.get("output_text")
+    if out:
+        return json.loads(out)
+
+    for item in data.get("output", []):
+        for c in item.get("content", []):
+            if c.get("type") == "output_text" and "text" in c:
+                return json.loads(c["text"])
+
+    return {"intent": "unknown", "entity": "", "raw": user_text}
