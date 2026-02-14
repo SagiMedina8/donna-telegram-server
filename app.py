@@ -185,7 +185,10 @@ def llm_digest_to_plan(user_text: str) -> dict:
         "text": {
             "format": {
                 "type": "json_schema",
-                "json_schema": schema,
+                "json_schema": {
+                    "name": "DonnaDigestPlan",
+                    "schema": schema["schema"]
+                }
             }
         },
         "max_output_tokens": 700,
