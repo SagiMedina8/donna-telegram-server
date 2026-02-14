@@ -456,3 +456,7 @@ def telegram_webhook():
 @app.get("/")
 def health():
     return "OK"
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
