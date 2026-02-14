@@ -14,6 +14,9 @@ from config import (
     NOTION_PROJECTS_DB_ID, NOTION_DONNA_INBOX_DB_ID,
     DB_NAME_MAP,
 )
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from config import OWNER_CHAT_ID, TIMEZONE
 
 
 # ═══════════════════════════════════════════════════
@@ -349,6 +352,182 @@ def cmd_help(chat_id: int):
 def cmd_chatid(chat_id: int):
     """/chatid — show your chat ID."""
     tg_client.send(chat_id, f"ה-Chat ID שלך: <code>{chat_id}</code>")
+
+# ═══════════════════════════════════════════════════
+#  CRON: MORNING BRIEF
+# ═══════════════════════════════════════════════════
+
+def send_morning_brief(chat_id: int):
+    """Called by /cron/morning — send today's meetings with participant recaps."""
+    today = notion.today_str()
+    try:
+        meetings = notion.query_meetings_by_date(today)
+    except Exception as e:
+        tg_client.send(chat_id, f"שגיאה בשליפת פגישות: {e}")
+        return
+
+    if not meetings:
+        tg_client.send(chat_id, f"☀️ בוקר טוב! אין פגישות מתוכננות להיום ({today}).")
+        return
+
+    lines = [f"☀️ <b>בוקר טוב! יש לך {len(meetings)} פגישות היום:</b>\n"]
+
+    for i, page in enumerate(meetings, 1):
+        card = notion.get_meeting_card(page, full=False)
+        name = card.get("Name", "?")
+        date = card.get("תאריך", "")
+        time_part = date.split("T")[1][:5] if "T" in date else ""
+        participants = card.get("משתתפים", "")
+        purpose = card.get("מטרה", "")
+
+        lines.append(f"<b>{i}. {name}</b>")
+        if time_part:
+            lines.append(f"   🕐 {time_part}")
+        if participants:
+            lines.append(f"   👥 {participants}")
+        if purpose:
+            lines.append(f"   🎯 {purpose}")
+
+        # Participant recaps from People DB
+        if participants:
+            names = [n.strip() for n in participants.replace("،", ",").replace("、", ",").split(",")]
+            for pname in names[:5]:
+                if not pname:
+                    continue
+                try:
+                    people = notion.query_people(pname, limit=1)
+                    if people:
+                        pcard = notion.get_person_card(people[0], full=False)
+                        role = pcard.get("תפקיד", "")
+                        tips = notion.extract_prop(people[0], "טיפים להכנה")
+                        if role or tips:
+                            recap = f"   💡 {pname}"
+                            if role:
+                                recap += f" ({role})"
+                            if tips:
+                                recap += f" — {tips[:80]}"
+                            lines.append(recap)
+                except Exception:
+                    pass
+
+        lines.append("")
+
+    lines.append("יום פרודוקטיבי! 💪")
+    tg_client.send(chat_id, "\n".join(lines))
+
+
+# ═══════════════════════════════════════════════════
+#  CRON: FOLLOWUP AFTER MEETING
+# ═══════════════════════════════════════════════════
+
+def check_ended_meetings(chat_id: int):
+    """Called by /cron/followup — check if a meeting just ended (start+30min)."""
+    tz = ZoneInfo(TIMEZONE)
+    now = datetime.now(tz)
+    today = now.strftime("%Y-%m-%d")
+
+    try:
+        meetings = notion.query_meetings_by_date(today)
+    except Exception:
+        return
+
+    for page in meetings:
+        page_id = page["id"]
+        if state.was_followed_up(page_id):
+            continue
+
+        date_val = notion.extract_prop(page, "תאריך")
+        if "T" not in date_val:
+            continue
+
+        try:
+            meeting_start = datetime.fromisoformat(date_val)
+            meeting_end = meeting_start + timedelta(minutes=30)
+        except Exception:
+            continue
+
+        # If meeting ended in the last 15 minutes
+        if meeting_end <= now <= meeting_end + timedelta(minutes=15):
+            state.mark_followed_up(page_id, today)
+            name = notion.extract_prop(page, "Name")
+            participants = notion.extract_prop(page, "משתתפים")
+
+            msg = (
+                f"📝 הפגישה <b>{name}</b> הסתיימה."
+            )
+            if participants:
+                msg += f"\n👥 עם: {participants}"
+            msg += "\n\nמה היה? יש תובנות/משימות? פשוט כתוב לי ואני אעדכן."
+
+            tg_client.send(chat_id, msg)
+            state.set_context(chat_id, "followup", name)
+            return  # one at a time
+
+
+# ═══════════════════════════════════════════════════
+#  NATURAL CHAT (Intent Router)
+# ═══════════════════════════════════════════════════
+
+def handle_natural_text(chat_id: int, text: str):
+    """Route free text through LLM intent classifier."""
+    from llm import classify_intent
+
+    ctx = state.get_context(chat_id)
+
+    try:
+        result = classify_intent(text, ctx)
+    except Exception as e:
+        tg_client.send(chat_id, f"לא הצלחתי להבין. נסה שוב או כתוב /עזרה\n({e})")
+        return
+
+    intent = result.get("intent", "unknown")
+    entity = result.get("entity", "")
+
+    if intent == "who":
+        state.set_context(chat_id, "person", entity)
+        cmd_who(chat_id, entity)
+
+    elif intent == "today":
+        cmd_today(chat_id)
+
+    elif intent == "tomorrow":
+        cmd_tomorrow(chat_id)
+
+    elif intent == "meeting":
+        state.set_context(chat_id, "meeting", entity)
+        cmd_meeting(chat_id, entity)
+
+    elif intent == "digest" or intent == "followup_answer":
+        # If context is followup, prefix with meeting name
+        if ctx and ctx.get("topic") == "followup":
+            text = f"סיכום פגישה '{ctx.get('entity', '')}': {text}"
+        state.set_context(chat_id, "digest", entity)
+        cmd_digest(chat_id, text)
+
+    elif intent == "help":
+        cmd_help(chat_id)
+
+    elif intent == "chat":
+        # Friendly response
+        greetings = {
+            "שלום": "שלום! 👋 מה אפשר לעשות בשבילך?",
+            "היי": "היי! 😊 איך אפשר לעזור?",
+            "מה שלומך": "אני דונה, תמיד מוכנה! מה בתוכנית?",
+        }
+        for key, response in greetings.items():
+            if key in text:
+                tg_client.send(chat_id, response)
+                return
+        tg_client.send(chat_id, "היי! 👋 אני פה. מה תרצה לעשות?")
+
+    else:
+        # Unknown — try to be helpful
+        if ctx and ctx.get("topic") == "person" and ctx.get("entity"):
+            # Assume follow-up about same person
+            state.set_context(chat_id, "person", ctx["entity"])
+            cmd_who(chat_id, ctx["entity"])
+        else:
+            tg_client.send(chat_id, "לא הבנתי 🤔\nנסה לשאול אותי: מי זה X? מה יש לי היום? או כתוב /עזרה")
 # ═══════════════════════════════════════════════════
 #  CALLBACKS (button clicks)
 # ═══════════════════════════════════════════════════
