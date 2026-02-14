@@ -1,0 +1,261 @@
+"""
+Donna Agent — Notion Client
+Query, read, update, and create pages in Notion databases.
+"""
+import requests
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from config import (
+    NOTION_TOKEN, NOTION_BASE, NOTION_VERSION,
+    NOTION_PEOPLE_DB_ID, NOTION_MEETINGS_DB_ID,
+    NOTION_PROJECTS_DB_ID, NOTION_DONNA_INBOX_DB_ID,
+    DB_NAME_MAP, TIMEZONE,
+)
+
+# ──────────────────── helpers ────────────────────
+
+def _headers() -> dict:
+    return {
+        "Authorization": f"Bearer {NOTION_TOKEN}",
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+    }
+
+
+def _tz():
+    return ZoneInfo(TIMEZONE)
+
+
+# ──────────────────── schema ────────────────────
+
+def retrieve_database(database_id: str) -> dict:
+    url = f"{NOTION_BASE}/databases/{database_id}"
+    r = requests.get(url, headers=_headers(), timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def get_schema(db_name: str) -> dict | None:
+    """Return {prop_name: prop_type} for a named DB, or None if unknown."""
+    db_id = DB_NAME_MAP.get(db_name.strip().lower(), "")
+    if not db_id:
+        return None
+    db = retrieve_database(db_id)
+    return {name: meta.get("type") for name, meta in db.get("properties", {}).items()}
+
+
+# ──────────────────── generic page helpers ────────────────────
+
+def get_page(page_id: str) -> dict:
+    url = f"{NOTION_BASE}/pages/{page_id}"
+    r = requests.get(url, headers=_headers(), timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def extract_prop(page: dict, prop_name: str) -> str:
+    """Extract a human-readable string from any common Notion property type."""
+    props = page.get("properties", {})
+    prop = props.get(prop_name, {})
+    ptype = prop.get("type", "")
+
+    if ptype == "title":
+        return "".join(x.get("plain_text", "") for x in prop.get("title", []))
+    if ptype == "rich_text":
+        return "".join(x.get("plain_text", "") for x in prop.get("rich_text", []))
+    if ptype == "select":
+        sel = prop.get("select")
+        return sel.get("name", "") if sel else ""
+    if ptype == "multi_select":
+        return ", ".join(s.get("name", "") for s in prop.get("multi_select", []))
+    if ptype == "checkbox":
+        return "כן" if prop.get("checkbox") else "לא"
+    if ptype == "date":
+        d = prop.get("date")
+        if not d:
+            return ""
+        start = d.get("start", "")
+        end = d.get("end", "")
+        return f"{start}" + (f" → {end}" if end else "")
+    if ptype == "number":
+        return str(prop.get("number", ""))
+    if ptype == "relation":
+        return f"({len(prop.get('relation', []))} קשרים)"
+    return ""
+
+
+# ──────────────────── People ────────────────────
+
+def query_people(name: str, limit: int = 10) -> list[dict]:
+    """Search People DB by name (title contains)."""
+    url = f"{NOTION_BASE}/databases/{NOTION_PEOPLE_DB_ID}/query"
+    body = {
+        "page_size": limit,
+        "filter": {"property": "שם", "title": {"contains": name}},
+    }
+    r = requests.post(url, headers=_headers(), json=body, timeout=30)
+    r.raise_for_status()
+    return r.json().get("results", [])
+
+
+def get_person_card(page: dict, full: bool = False) -> dict:
+    """
+    Returns a dict with person fields.
+    full=False: name, role, department, domain (short card).
+    full=True: all fields.
+    """
+    short_fields = ["שם", "תפקיד", "מחלקה", "תחום"]
+    all_fields = [
+        "שם", "תפקיד", "מחלקה", "תחום", "מנהל ישיר",
+        "אופן עבודה מועדף", "תחביבים ותחומי עניין",
+        "טיפים להכנה", "הערות אישיות", "פרוייקטים",
+        "Meetings", "פעיל", "לייבלים",
+    ]
+    fields = all_fields if full else short_fields
+    result = {}
+    for f in fields:
+        val = extract_prop(page, f)
+        if val:
+            result[f] = val
+    return result
+
+
+def update_person_field(page_id: str, field_name: str, new_text: str):
+    """Update a rich_text field on a People page."""
+    url = f"{NOTION_BASE}/pages/{page_id}"
+    body = {
+        "properties": {
+            field_name: {
+                "rich_text": [{"type": "text", "text": {"content": new_text}}]
+            }
+        }
+    }
+    r = requests.patch(url, headers=_headers(), json=body, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def create_person(name: str, fields: dict | None = None) -> dict:
+    """Create a new person in People DB."""
+    props = {
+        "שם": {"title": [{"type": "text", "text": {"content": name}}]}
+    }
+    for field_name, value in (fields or {}).items():
+        props[field_name] = {
+            "rich_text": [{"type": "text", "text": {"content": value}}]
+        }
+    body = {"parent": {"database_id": NOTION_PEOPLE_DB_ID}, "properties": props}
+    r = requests.post(f"{NOTION_BASE}/pages", headers=_headers(), json=body, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+# ──────────────────── Meetings ────────────────────
+
+def query_meetings_by_date(date_str: str) -> list[dict]:
+    """
+    Query Meetings DB for a specific date.
+    date_str: 'YYYY-MM-DD'
+    Assumes 'תאריך' is a Date property in Notion.
+    """
+    url = f"{NOTION_BASE}/databases/{NOTION_MEETINGS_DB_ID}/query"
+    next_day = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    body = {
+        "page_size": 25,
+        "filter": {
+            "property": "תאריך",
+            "date": {
+                "on_or_after": date_str,
+                "before": next_day,
+            },
+        },
+        "sorts": [{"property": "תאריך", "direction": "ascending"}],
+    }
+    r = requests.post(url, headers=_headers(), json=body, timeout=30)
+    r.raise_for_status()
+    return r.json().get("results", [])
+
+
+def query_meetings_by_text(search_text: str, limit: int = 10) -> list[dict]:
+    """Search Meetings DB by Name (title contains)."""
+    url = f"{NOTION_BASE}/databases/{NOTION_MEETINGS_DB_ID}/query"
+    body = {
+        "page_size": limit,
+        "filter": {"property": "Name", "title": {"contains": search_text}},
+    }
+    r = requests.post(url, headers=_headers(), json=body, timeout=30)
+    r.raise_for_status()
+    return r.json().get("results", [])
+
+
+def get_meeting_card(page: dict, full: bool = False) -> dict:
+    """Extract meeting fields as dict."""
+    short_fields = ["Name", "תאריך", "משתתפים", "מטרה"]
+    all_fields = [
+        "Name", "תאריך", "משתתפים", "מטרה",
+        "תובנות מרכזיות", "אפיק", "סטטוס",
+    ]
+    fields = all_fields if full else short_fields
+    result = {}
+    for f in fields:
+        val = extract_prop(page, f)
+        if val:
+            result[f] = val
+    return result
+
+
+def create_meeting(name: str, date_iso: str = "", fields: dict | None = None) -> dict:
+    """
+    Create a new meeting in Meetings DB.
+    date_iso: ISO string like '2026-02-14T11:00:00+02:00'
+    """
+    props = {
+        "Name": {"title": [{"type": "text", "text": {"content": name}}]}
+    }
+    if date_iso:
+        props["תאריך"] = {"date": {"start": date_iso}}
+    for field_name, value in (fields or {}).items():
+        props[field_name] = {
+            "rich_text": [{"type": "text", "text": {"content": value}}]
+        }
+    body = {"parent": {"database_id": NOTION_MEETINGS_DB_ID}, "properties": props}
+    r = requests.post(f"{NOTION_BASE}/pages", headers=_headers(), json=body, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+# ──────────────────── Donna Inbox ────────────────────
+
+def create_inbox_item(title: str, payload_text: str, status: str = "Executed") -> dict:
+    props = {
+        "Title": {"title": [{"type": "text", "text": {"content": title}}]}
+    }
+    # Try to set optional fields (won't fail if they don't exist)
+    try:
+        schema = retrieve_database(NOTION_DONNA_INBOX_DB_ID)
+        db_props = schema.get("properties", {})
+        if "Status" in db_props and db_props["Status"].get("type") == "select":
+            props["Status"] = {"select": {"name": status}}
+        if "Payload" in db_props and db_props["Payload"].get("type") in ("rich_text", "text"):
+            props["Payload"] = {"rich_text": [{"type": "text", "text": {"content": payload_text}}]}
+    except Exception:
+        pass
+
+    body = {"parent": {"database_id": NOTION_DONNA_INBOX_DB_ID}, "properties": props}
+    r = requests.post(f"{NOTION_BASE}/pages", headers=_headers(), json=body, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+# ──────────────────── utility ────────────────────
+
+def today_str() -> str:
+    return datetime.now(_tz()).strftime("%Y-%m-%d")
+
+
+def tomorrow_str() -> str:
+    return (datetime.now(_tz()) + timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def now_iso() -> str:
+    return datetime.now(_tz()).isoformat()
