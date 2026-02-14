@@ -13,6 +13,7 @@ NOTION_PEOPLE_DB_ID = os.environ.get("NOTION_PEOPLE_DB_ID", "")
 NOTION_MEETINGS_DB_ID = os.environ.get("NOTION_MEETINGS_DB_ID", "")
 NOTION_PROJECTS_DB_ID = os.environ.get("NOTION_PROJECTS_DB_ID", "")
 NOTION_DONNA_INBOX_DB_ID = os.environ.get("NOTION_DONNA_INBOX_DB_ID", "")
+NOTION_TASKS_DB_ID = os.environ.get("NOTION_TASKS_DB_ID", "")
 
 NOTION_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
@@ -37,6 +38,8 @@ DB_NAME_MAP = {
     "projects": NOTION_PROJECTS_DB_ID,
     "פרויקטים": NOTION_PROJECTS_DB_ID,
     "inbox": NOTION_DONNA_INBOX_DB_ID,
+    "tasks": NOTION_TASKS_DB_ID,
+    "משימות": NOTION_TASKS_DB_ID,
 }
 
 # ---------- Allowed fields for LLM updates (People DB) ----------
