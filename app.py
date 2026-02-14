@@ -27,6 +27,7 @@ COMMAND_MAP = {
     "/עזרה":   (commands.cmd_help,      False),
     "/סטטוס":  (commands.cmd_status,    False),
     "/schema":  (commands.cmd_schema,    True),
+    "/chatid":  (commands.cmd_chatid,   False),
     # aliases
     "/help":    (commands.cmd_help,      False),
     "/status":  (commands.cmd_status,    False),
