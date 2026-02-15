@@ -122,8 +122,16 @@ def format_update_proposal(person_name, field, op, value, why, current="") -> st
 # ──────────────────── Creation preview ────────────────────
 
 def format_creation_preview(ctype: str, name: str, fields: dict) -> str:
-    """Format a preview of what will be created."""
+    """Format a preview of what will be created — only relevant fields."""
     type_labels = {"person": "👤 אדם חדש", "meeting": "📅 פגישה חדשה", "task": "📋 משימה חדשה"}
+    
+    # Only show fields relevant to this type
+    type_fields = {
+        "person": ["role", "department", "domain", "manager", "work_pref", "hobbies", "tips", "notes"],
+        "meeting": ["date_iso", "participants", "purpose"],
+        "task": ["due_date", "priority", "project"],
+    }
+    
     field_labels = {
         "role": "💼 תפקיד", "department": "🏢 מחלקה", "domain": "📂 תחום",
         "manager": "👆 מנהל ישיר", "work_pref": "💬 אופן עבודה",
@@ -131,11 +139,12 @@ def format_creation_preview(ctype: str, name: str, fields: dict) -> str:
         "date_iso": "🕐 תאריך", "participants": "👥 משתתפים", "purpose": "🎯 מטרה",
         "due_date": "📅 דדליין", "priority": "🔥 עדיפות", "project": "📂 פרויקט",
     }
+    
+    allowed = type_fields.get(ctype, [])
     lines = [f"<b>{type_labels.get(ctype, ctype)}: {name}</b>\n"]
     for k, v in fields.items():
-        if v and v.strip():
+        if v and v.strip() and k in allowed:
             label = field_labels.get(k, k)
-            # Show time nicely for date_iso
             if k == "date_iso" and "T" in v:
                 v = v.replace("T", " ").split("+")[0]
             lines.append(f"{label}: {v}")
