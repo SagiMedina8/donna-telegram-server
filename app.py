@@ -10,25 +10,31 @@ from config import validate_env, OWNER_CHAT_ID
 
 app = Flask(__name__)
 
-# Startup validation
 missing = validate_env()
 if missing:
     print(f"⚠️  Missing env vars: {', '.join(missing)}")
 
-# Command routing table (Hebrew + English aliases)
+# ─── Command routing table ───
 COMMAND_MAP = {
-    "/מי":      (commands.cmd_who,      True),
-    "/היום":    (commands.cmd_today,     False),
-    "/מחר":    (commands.cmd_tomorrow,  False),
-    "/פגישה":  (commands.cmd_meeting,   True),
-    "/סיכום":  (commands.cmd_digest,    True),
-    "/עזרה":   (commands.cmd_help,      False),
-    "/סטטוס":  (commands.cmd_status,    False),
-    "/schema":  (commands.cmd_schema,    True),
-    "/chatid":  (commands.cmd_chatid,    False),
-    "/help":    (commands.cmd_help,      False),
-    "/status":  (commands.cmd_status,    False),
-    "/digest":  (commands.cmd_digest,    True),
+    # Hebrew commands
+    "/מי":          (commands.cmd_who,           True),
+    "/היום":        (commands.cmd_today,          False),
+    "/מחר":        (commands.cmd_tomorrow,       False),
+    "/פגישה":      (commands.cmd_meeting,        True),
+    "/משימות":     (commands.cmd_my_tasks,       True),
+    "/סיכום":      (commands.cmd_digest,         True),
+    "/אדם_חדש":   (lambda cid, t: commands.handle_create(cid, "person", t),  True),
+    "/פגישה_חדשה": (lambda cid, t: commands.handle_create(cid, "meeting", t), True),
+    "/משימה_חדשה": (lambda cid, t: commands.handle_create(cid, "task", t),    True),
+    "/עזרה":       (commands.cmd_help,           False),
+    "/סטטוס":      (commands.cmd_status,         False),
+    # English aliases
+    "/schema":      (commands.cmd_schema,         True),
+    "/chatid":      (commands.cmd_chatid,         False),
+    "/help":        (commands.cmd_help,           False),
+    "/status":      (commands.cmd_status,         False),
+    "/digest":      (commands.cmd_digest,         True),
+    "/tasks":       (commands.cmd_my_tasks,       True),
 }
 
 
@@ -72,13 +78,13 @@ def telegram_webhook():
     if not text:
         return {"ok": True}
 
-    # Try slash commands first
+    # Slash commands
     if text.startswith("/"):
         if not route_command(chat_id, text):
             commands.cmd_help(chat_id)
         return {"ok": True}
 
-    # Natural language — intent router
+    # Natural language
     commands.handle_natural_text(chat_id, text)
     return {"ok": True}
 
@@ -87,7 +93,6 @@ def telegram_webhook():
 
 @app.get("/cron/morning")
 def cron_morning():
-    """Called by external cron at 8:00 AM Israel time."""
     if OWNER_CHAT_ID:
         commands.send_morning_brief(OWNER_CHAT_ID)
     return {"ok": True}
@@ -95,7 +100,6 @@ def cron_morning():
 
 @app.get("/cron/followup")
 def cron_followup():
-    """Called every 10 minutes by external cron."""
     if OWNER_CHAT_ID:
         commands.check_ended_meetings(OWNER_CHAT_ID)
     return {"ok": True}

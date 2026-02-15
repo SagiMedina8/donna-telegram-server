@@ -1,8 +1,9 @@
 """
 Donna Agent — Configuration
-All environment variables, constants, and DB mappings.
+Environment variables, constants, DB mappings, and Donna's personality.
 """
 import os
+import random
 
 # ---------- Telegram ----------
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
@@ -29,7 +30,7 @@ OWNER_CHAT_ID = int(os.environ.get("OWNER_CHAT_ID", "0"))
 # ---------- Timezone ----------
 TIMEZONE = "Asia/Jerusalem"
 
-# ---------- DB name mapping (Hebrew-friendly) ----------
+# ---------- DB name mapping ----------
 DB_NAME_MAP = {
     "people": NOTION_PEOPLE_DB_ID,
     "אנשים": NOTION_PEOPLE_DB_ID,
@@ -44,25 +45,74 @@ DB_NAME_MAP = {
 
 # ---------- Allowed fields for LLM updates (People DB) ----------
 ALLOWED_PEOPLE_FIELDS = [
-    "טיפים להכנה",
-    "הערות אישיות",
-    "תחביבים ותחומי עניין",
-    "אופן עבודה מועדף",
-    "הערות רגישות",
-    "תחום",
-    "תפקיד",
-    "מחלקה",
-    "מנהל ישיר",
+    "טיפים להכנה", "הערות אישיות", "תחביבים ותחומי עניין",
+    "אופן עבודה מועדף", "הערות רגישות", "תחום", "תפקיד",
+    "מחלקה", "מנהל ישיר",
 ]
 
-# ---------- Startup validation ----------
+# ---------- Donna Quotes ----------
+DONNA_QUOTES = {
+    "morning": [
+        "☀️ בוקר טוב! אם זה חשוב — נמצא דרך.",
+        "🌅 בוקר! תן לי את ההקשר — ואני אביא פתרון.",
+        "☕ בוקר טוב! לא הכול דחוף, אבל הכול מחושב.",
+        "🔥 בוקר! מי שמכיר את הסוף, בוחר התחלה אחרת.",
+    ],
+    "followup": [
+        "📝 הפגישה הסתיימה. מה היה? אנשים מספרים הכול — צריך לדעת איך להסתכל.",
+        "🎯 סיימת? ספר לי — אני אסדר את הכל.",
+        "✏️ מה יצא מהפגישה? תכתוב בקצרה ואני אעשה סדר.",
+    ],
+    "approval": [
+        "✅ בוצע. חכמה שקטה מנצחת רעש.",
+        "✅ עשוי. מקצוענות היא לעשות נכון גם כשלא מסתכלים.",
+        "✅ נעשה. תוצאות מדברות.",
+    ],
+    "rejection": [
+        "❌ בסדר, ביטלתי. לפעמים המהלך הכי חכם הוא לא לזוז.",
+        "❌ נדחה. אל תתבלבל בין לחץ לחשיבות.",
+    ],
+    "creation": [
+        "🆕 נוצר! כוח אמיתי לא צועק — הוא מזיז.",
+        "✨ הוספתי! עבודה טובה נראית טבעית — אבל לא מקרית.",
+        "🎯 מוכן! סטנדרט גבוה חוסך ויכוחים.",
+    ],
+    "greeting": [
+        "היי! 👋 אני דונה. מה בתוכנית?",
+        "שלום! 😊 מה אפשר לסדר?",
+        "מה קורה? 💫 אני פה, תגיד מה צריך.",
+    ],
+    "thanks": [
+        "בכיף! 😊 בשביל זה אני פה.",
+        "אין בעד מה! 💪 סמוך עליי — זה מה שאני עושה.",
+    ],
+    "wisdom": [
+        "💡 תחשוב שני צעדים קדימה — ואז עוד אחד.",
+        "🎯 היחסים קובעים את התוצאה יותר מהטיעון.",
+        "🧩 פתרון טוב היום יכול להיות בעיה מחר.",
+        "🔥 אם זה היה פשוט, כבר היו מסיימים.",
+        "⚡ מי שממהר — כבר הפסיד קלף.",
+        "🧠 אינטואיציה היא ניסיון שעובד מהר.",
+    ],
+    "no_results": [
+        "🔍 לא מצאתי כלום. בוא ננסה אחרת.",
+        "📭 ריק פה. אולי תנסה שם אחר?",
+    ],
+    "error": [
+        "😕 משהו השתבש. קודם מייצבים — אחר כך פותרים.",
+        "🔧 שגיאה. אל תדאג, כבר ראיתי גרוע מזה.",
+    ],
+}
+
+
+def donna_says(category: str) -> str:
+    quotes = DONNA_QUOTES.get(category, DONNA_QUOTES["wisdom"])
+    return random.choice(quotes)
+
+
 def validate_env():
-    """Returns list of missing critical env vars."""
     missing = []
-    if not TELEGRAM_TOKEN:
-        missing.append("TELEGRAM_TOKEN")
-    if not NOTION_TOKEN:
-        missing.append("NOTION_TOKEN")
-    if not OPENAI_API_KEY:
-        missing.append("OPENAI_API_KEY")
+    if not TELEGRAM_TOKEN: missing.append("TELEGRAM_TOKEN")
+    if not NOTION_TOKEN: missing.append("NOTION_TOKEN")
+    if not OPENAI_API_KEY: missing.append("OPENAI_API_KEY")
     return missing

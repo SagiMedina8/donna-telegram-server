@@ -1,6 +1,6 @@
 """
 Donna Agent — Notion Client
-Query, read, update, and create pages in Notion databases.
+Query, read, update, and create pages in all Notion databases.
 """
 import requests
 from datetime import datetime, timedelta
@@ -8,35 +8,45 @@ from zoneinfo import ZoneInfo
 from config import (
     NOTION_TOKEN, NOTION_BASE, NOTION_VERSION,
     NOTION_PEOPLE_DB_ID, NOTION_MEETINGS_DB_ID,
-    NOTION_PROJECTS_DB_ID, NOTION_DONNA_INBOX_DB_ID,
-    DB_NAME_MAP, TIMEZONE,
+    NOTION_PROJECTS_DB_ID, NOTION_TASKS_DB_ID,
+    NOTION_DONNA_INBOX_DB_ID, DB_NAME_MAP, TIMEZONE,
 )
 
 # ──────────────────── helpers ────────────────────
 
-def _headers() -> dict:
+def _headers():
     return {
         "Authorization": f"Bearer {NOTION_TOKEN}",
         "Notion-Version": NOTION_VERSION,
         "Content-Type": "application/json",
     }
 
-
 def _tz():
     return ZoneInfo(TIMEZONE)
 
+def _post(url, body):
+    r = requests.post(url, headers=_headers(), json=body, timeout=30)
+    r.raise_for_status()
+    return r.json()
 
-# ──────────────────── schema ────────────────────
-
-def retrieve_database(database_id: str) -> dict:
-    url = f"{NOTION_BASE}/databases/{database_id}"
+def _get(url):
     r = requests.get(url, headers=_headers(), timeout=30)
     r.raise_for_status()
     return r.json()
 
+def _patch(url, body):
+    r = requests.patch(url, headers=_headers(), json=body, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+# ──────────────────── generic ────────────────────
+
+def retrieve_database(database_id: str) -> dict:
+    return _get(f"{NOTION_BASE}/databases/{database_id}")
+
 
 def get_schema(db_name: str) -> dict | None:
-    """Return {prop_name: prop_type} for a named DB, or None if unknown."""
     db_id = DB_NAME_MAP.get(db_name.strip().lower(), "")
     if not db_id:
         return None
@@ -44,17 +54,11 @@ def get_schema(db_name: str) -> dict | None:
     return {name: meta.get("type") for name, meta in db.get("properties", {}).items()}
 
 
-# ──────────────────── generic page helpers ────────────────────
-
 def get_page(page_id: str) -> dict:
-    url = f"{NOTION_BASE}/pages/{page_id}"
-    r = requests.get(url, headers=_headers(), timeout=30)
-    r.raise_for_status()
-    return r.json()
+    return _get(f"{NOTION_BASE}/pages/{page_id}")
 
 
 def extract_prop(page: dict, prop_name: str) -> str:
-    """Extract a human-readable string from any common Notion property type."""
     props = page.get("properties", {})
     prop = props.get(prop_name, {})
     ptype = prop.get("type", "")
@@ -72,13 +76,17 @@ def extract_prop(page: dict, prop_name: str) -> str:
         return "כן" if prop.get("checkbox") else "לא"
     if ptype == "date":
         d = prop.get("date")
-        if not d:
-            return ""
+        if not d: return ""
         start = d.get("start", "")
         end = d.get("end", "")
         return f"{start}" + (f" → {end}" if end else "")
     if ptype == "number":
         return str(prop.get("number", ""))
+    if ptype == "status":
+        s = prop.get("status")
+        return s.get("name", "") if s else ""
+    if ptype == "people":
+        return ", ".join(p.get("name", "") for p in prop.get("people", []))
     if ptype == "relation":
         return f"({len(prop.get('relation', []))} קשרים)"
     return ""
@@ -87,77 +95,46 @@ def extract_prop(page: dict, prop_name: str) -> str:
 # ──────────────────── People ────────────────────
 
 def query_people(name: str, limit: int = 10) -> list[dict]:
-    """Search People DB by name (title contains)."""
     url = f"{NOTION_BASE}/databases/{NOTION_PEOPLE_DB_ID}/query"
     body = {
         "page_size": limit,
         "filter": {"property": "שם", "title": {"contains": name}},
     }
-    r = requests.post(url, headers=_headers(), json=body, timeout=30)
-    r.raise_for_status()
-    return r.json().get("results", [])
+    return _post(url, body).get("results", [])
 
 
 def get_person_card(page: dict, full: bool = False) -> dict:
-    """
-    Returns a dict with person fields.
-    full=False: name, role, department, domain (short card).
-    full=True: all fields.
-    """
     short_fields = ["שם", "תפקיד", "מחלקה", "תחום"]
     all_fields = [
         "שם", "תפקיד", "מחלקה", "תחום", "מנהל ישיר",
         "אופן עבודה מועדף", "תחביבים ותחומי עניין",
-        "טיפים להכנה", "הערות אישיות", "פרוייקטים",
-        "Meetings", "פעיל", "לייבלים",
+        "טיפים להכנה", "הערות אישיות", "הערות רגישות",
+        "פרוייקטים", "Meetings", "פעיל", "לייבלים",
     ]
     fields = all_fields if full else short_fields
-    result = {}
-    for f in fields:
-        val = extract_prop(page, f)
-        if val:
-            result[f] = val
-    return result
+    return {f: extract_prop(page, f) for f in fields if extract_prop(page, f)}
 
 
 def update_person_field(page_id: str, field_name: str, new_text: str):
-    """Update a rich_text field on a People page."""
     url = f"{NOTION_BASE}/pages/{page_id}"
-    body = {
-        "properties": {
-            field_name: {
-                "rich_text": [{"type": "text", "text": {"content": new_text}}]
-            }
-        }
-    }
-    r = requests.patch(url, headers=_headers(), json=body, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    body = {"properties": {
+        field_name: {"rich_text": [{"type": "text", "text": {"content": new_text}}]}
+    }}
+    return _patch(url, body)
 
 
 def create_person(name: str, fields: dict | None = None) -> dict:
-    """Create a new person in People DB."""
-    props = {
-        "שם": {"title": [{"type": "text", "text": {"content": name}}]}
-    }
-    for field_name, value in (fields or {}).items():
-        props[field_name] = {
-            "rich_text": [{"type": "text", "text": {"content": value}}]
-        }
+    props = {"שם": {"title": [{"type": "text", "text": {"content": name}}]}}
+    for fname, val in (fields or {}).items():
+        if val:
+            props[fname] = {"rich_text": [{"type": "text", "text": {"content": val}}]}
     body = {"parent": {"database_id": NOTION_PEOPLE_DB_ID}, "properties": props}
-    r = requests.post(f"{NOTION_BASE}/pages", headers=_headers(), json=body, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    return _post(f"{NOTION_BASE}/pages", body)
 
 
 # ──────────────────── Meetings ────────────────────
 
 def query_meetings_by_date(date_str: str) -> list[dict]:
-    """
-    Query Meetings DB for a specific date.
-    date_str: 'YYYY-MM-DD'
-    Assumes 'תאריך' is a Date property in Notion.
-    """
     url = f"{NOTION_BASE}/databases/{NOTION_MEETINGS_DB_ID}/query"
     next_day = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
     body = {
@@ -170,80 +147,103 @@ def query_meetings_by_date(date_str: str) -> list[dict]:
         },
         "sorts": [{"property": "תאריך", "direction": "ascending"}],
     }
-    r = requests.post(url, headers=_headers(), json=body, timeout=30)
-    r.raise_for_status()
-    return r.json().get("results", [])
+    return _post(url, body).get("results", [])
 
 
 def query_meetings_by_text(search_text: str, limit: int = 10) -> list[dict]:
-    """Search Meetings DB by Name (title contains)."""
     url = f"{NOTION_BASE}/databases/{NOTION_MEETINGS_DB_ID}/query"
     body = {
         "page_size": limit,
         "filter": {"property": "Name", "title": {"contains": search_text}},
     }
-    r = requests.post(url, headers=_headers(), json=body, timeout=30)
-    r.raise_for_status()
-    return r.json().get("results", [])
+    return _post(url, body).get("results", [])
 
 
 def get_meeting_card(page: dict, full: bool = False) -> dict:
-    """Extract meeting fields as dict."""
     short_fields = ["Name", "תאריך", "משתתפים", "מטרה"]
-    all_fields = [
-        "Name", "תאריך", "משתתפים", "מטרה",
-        "תובנות מרכזיות", "אפיק", "סטטוס",
-    ]
+    all_fields = ["Name", "תאריך", "משתתפים", "מטרה", "תובנות מרכזיות", "אפיק", "סטטוס"]
     fields = all_fields if full else short_fields
-    result = {}
-    for f in fields:
-        val = extract_prop(page, f)
-        if val:
-            result[f] = val
-    return result
+    return {f: extract_prop(page, f) for f in fields if extract_prop(page, f)}
 
 
 def create_meeting(name: str, date_iso: str = "", fields: dict | None = None) -> dict:
-    """
-    Create a new meeting in Meetings DB.
-    date_iso: ISO string like '2026-02-14T11:00:00+02:00'
-    """
-    props = {
-        "Name": {"title": [{"type": "text", "text": {"content": name}}]}
-    }
+    props = {"Name": {"title": [{"type": "text", "text": {"content": name}}]}}
     if date_iso:
         props["תאריך"] = {"date": {"start": date_iso}}
-    for field_name, value in (fields or {}).items():
-        props[field_name] = {
-            "rich_text": [{"type": "text", "text": {"content": value}}]
-        }
+    for fname, val in (fields or {}).items():
+        if val and fname not in ("Name", "תאריך"):
+            props[fname] = {"rich_text": [{"type": "text", "text": {"content": val}}]}
     body = {"parent": {"database_id": NOTION_MEETINGS_DB_ID}, "properties": props}
-    r = requests.post(f"{NOTION_BASE}/pages", headers=_headers(), json=body, timeout=30)
-    r.raise_for_status()
-    return r.json()
+    return _post(f"{NOTION_BASE}/pages", body)
 
 
-# ──────────────────── Donna Inbox ────────────────────
+# ──────────────────── Tasks ────────────────────
 
-def create_inbox_item(title: str, payload_text: str, status: str = "Executed") -> dict:
-    props = {
-        "Title": {"title": [{"type": "text", "text": {"content": title}}]}
+def query_tasks_open(limit: int = 25) -> list[dict]:
+    """Get open tasks (not Done)."""
+    url = f"{NOTION_BASE}/databases/{NOTION_TASKS_DB_ID}/query"
+    body = {
+        "page_size": limit,
+        "filter": {
+            "property": "Status",
+            "status": {"does_not_equal": "Done"},
+        },
+        "sorts": [{"property": "Due date", "direction": "ascending"}],
     }
-    # Try to set optional fields (won't fail if they don't exist)
-    try:
-        schema = retrieve_database(NOTION_DONNA_INBOX_DB_ID)
-        db_props = schema.get("properties", {})
-        if "Status" in db_props and db_props["Status"].get("type") == "select":
-            props["Status"] = {"select": {"name": status}}
-        if "Payload" in db_props and db_props["Payload"].get("type") in ("rich_text", "text"):
-            props["Payload"] = {"rich_text": [{"type": "text", "text": {"content": payload_text}}]}
-    except Exception:
-        pass
+    return _post(url, body).get("results", [])
 
-    body = {"parent": {"database_id": NOTION_DONNA_INBOX_DB_ID}, "properties": props}
-    r = requests.post(f"{NOTION_BASE}/pages", headers=_headers(), json=body, timeout=30)
-    r.raise_for_status()
-    return r.json()
+
+def query_tasks_by_date(date_str: str) -> list[dict]:
+    """Get tasks due on a specific date."""
+    url = f"{NOTION_BASE}/databases/{NOTION_TASKS_DB_ID}/query"
+    next_day = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    body = {
+        "page_size": 25,
+        "filter": {
+            "and": [
+                {"property": "Due date", "date": {"on_or_after": date_str}},
+                {"property": "Due date", "date": {"before": next_day}},
+            ]
+        },
+        "sorts": [{"property": "Due date", "direction": "ascending"}],
+    }
+    return _post(url, body).get("results", [])
+
+
+def get_task_card(page: dict) -> dict:
+    fields = ["Task name", "Status", "Due date", "עדיפות", "פרוייקט", "Assignee"]
+    return {f: extract_prop(page, f) for f in fields if extract_prop(page, f)}
+
+
+def create_task(name: str, due_date: str = "", priority: str = "", project_id: str = "") -> dict:
+    props = {"Task name": {"title": [{"type": "text", "text": {"content": name}}]}}
+    if due_date:
+        props["Due date"] = {"date": {"start": due_date}}
+    if priority:
+        props["עדיפות"] = {"rich_text": [{"type": "text", "text": {"content": priority}}]}
+    if project_id:
+        props["פרוייקט"] = {"relation": [{"id": project_id}]}
+    body = {"parent": {"database_id": NOTION_TASKS_DB_ID}, "properties": props}
+    return _post(f"{NOTION_BASE}/pages", body)
+
+
+# ──────────────────── Projects ────────────────────
+
+def query_projects(name: str = "", limit: int = 25) -> list[dict]:
+    """Search projects by name, or get all."""
+    url = f"{NOTION_BASE}/databases/{NOTION_PROJECTS_DB_ID}/query"
+    body = {"page_size": limit}
+    if name:
+        body["filter"] = {"property": "Name", "title": {"contains": name}}
+    return _post(url, body).get("results", [])
+
+
+def find_project_id(name: str) -> str | None:
+    """Find project page_id by name. Returns None if not found."""
+    results = query_projects(name, limit=3)
+    if results:
+        return results[0]["id"]
+    return None
 
 
 # ──────────────────── utility ────────────────────
@@ -251,10 +251,8 @@ def create_inbox_item(title: str, payload_text: str, status: str = "Executed") -
 def today_str() -> str:
     return datetime.now(_tz()).strftime("%Y-%m-%d")
 
-
 def tomorrow_str() -> str:
     return (datetime.now(_tz()) + timedelta(days=1)).strftime("%Y-%m-%d")
-
 
 def now_iso() -> str:
     return datetime.now(_tz()).isoformat()
