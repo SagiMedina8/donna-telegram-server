@@ -1,9 +1,6 @@
 """
 Donna Agent — Formatters
-Format Notion data into Telegram messages (Hebrew).
 """
-
-# ──────────────────── People ────────────────────
 
 PERSON_LABELS = {
     "שם": "👤 שם", "תפקיד": "💼 תפקיד", "מחלקה": "🏢 מחלקה",
@@ -32,12 +29,9 @@ def format_person_list_item(card: dict) -> str:
     return " | ".join(x for x in [card.get("שם"), card.get("תפקיד"), card.get("מחלקה")] if x)
 
 
-# ──────────────────── Meetings ────────────────────
-
 MEETING_LABELS = {
     "Name": "📅 כותרת", "תאריך": "🕐 תאריך", "משתתפים": "👥 משתתפים",
-    "מטרה": "🎯 מטרה", "תובנות מרכזיות": "💡 תובנות", "אפיק": "📊 אפיק",
-    "סטטוס": "📋 סטטוס",
+    "מטרה": "🎯 מטרה", "תובנות מרכזיות": "💡 תובנות", "אפיק": "📊 אפיק", "סטטוס": "📋 סטטוס",
 }
 
 def format_meeting_short(card: dict) -> str:
@@ -67,8 +61,6 @@ def format_meetings_list(cards: list[dict]) -> str:
         lines.append(f"{i}. <b>{name}</b>{prefix}")
     return "\n".join(lines)
 
-
-# ──────────────────── Tasks ────────────────────
 
 TASK_LABELS = {
     "Task name": "📋 משימה", "Status": "📊 סטטוס", "Due date": "📅 דדליין",
@@ -105,33 +97,22 @@ def format_tasks_list(cards: list[dict]) -> str:
     return "\n".join(lines)
 
 
-# ──────────────────── Proposals ────────────────────
-
 def format_update_proposal(person_name, field, op, value, why, current="") -> str:
     op_label = "הוספה" if op == "append" else "החלפה"
-    lines = [
-        f"<b>דונה מציעה עדכון:</b>",
-        f"👤 {person_name}", f"📝 שדה: {field}", f"🔧 פעולה: {op_label}",
-        f"💡 סיבה: {why}", "",
-    ]
+    lines = [f"<b>דונה מציעה עדכון:</b>", f"👤 {person_name}", f"📝 שדה: {field}",
+             f"🔧 פעולה: {op_label}", f"💡 סיבה: {why}", ""]
     if current: lines.append(f"נוכחי: <i>{current}</i>")
     lines.append(f"חדש: <b>{value}</b>")
     return "\n".join(lines)
 
 
-# ──────────────────── Creation preview ────────────────────
-
 def format_creation_preview(ctype: str, name: str, fields: dict) -> str:
-    """Format a preview of what will be created — only relevant fields."""
     type_labels = {"person": "👤 אדם חדש", "meeting": "📅 פגישה חדשה", "task": "📋 משימה חדשה"}
-    
-    # Only show fields relevant to this type
     type_fields = {
         "person": ["role", "department", "domain", "manager", "work_pref", "hobbies", "tips", "notes"],
         "meeting": ["date_iso", "participants", "purpose"],
         "task": ["due_date", "priority", "project"],
     }
-    
     field_labels = {
         "role": "💼 תפקיד", "department": "🏢 מחלקה", "domain": "📂 תחום",
         "manager": "👆 מנהל ישיר", "work_pref": "💬 אופן עבודה",
@@ -139,7 +120,6 @@ def format_creation_preview(ctype: str, name: str, fields: dict) -> str:
         "date_iso": "🕐 תאריך", "participants": "👥 משתתפים", "purpose": "🎯 מטרה",
         "due_date": "📅 דדליין", "priority": "🔥 עדיפות", "project": "📂 פרויקט",
     }
-    
     allowed = type_fields.get(ctype, [])
     lines = [f"<b>{type_labels.get(ctype, ctype)}: {name}</b>\n"]
     for k, v in fields.items():
@@ -148,4 +128,34 @@ def format_creation_preview(ctype: str, name: str, fields: dict) -> str:
             if k == "date_iso" and "T" in v:
                 v = v.replace("T", " ").split("+")[0]
             lines.append(f"{label}: {v}")
+    return "\n".join(lines)
+
+
+def format_missing_questions(ctype: str, missing: list[str]) -> str:
+    """Format ALL missing fields as a single message with numbers."""
+    question_map = {
+        "person": {
+            "role": "תפקיד", "department": "מחלקה", "domain": "תחום",
+            "manager": "מנהל ישיר", "work_pref": "אופן עבודה מועדף",
+            "hobbies": "תחביבים", "tips": "טיפים להכנה", "notes": "הערות",
+        },
+        "meeting": {
+            "date_iso": "תאריך ושעה", "participants": "משתתפים", "purpose": "מטרת הפגישה",
+        },
+        "task": {
+            "due_date": "דדליין", "priority": "עדיפות (גבוהה/בינונית/נמוכה)", "project": "פרויקט",
+        },
+    }
+    qmap = question_map.get(ctype, {})
+    # Only show fields relevant to this type
+    relevant = [f for f in missing if f in qmap]
+    if not relevant:
+        return ""
+    lines = ["❓ <b>שדות שאפשר להשלים:</b>", ""]
+    for i, field in enumerate(relevant, 1):
+        label = qmap.get(field, field)
+        lines.append(f"{i}. {label}")
+    lines.append("")
+    lines.append("תענה לפי המספרים, למשל:\n<code>1. PM\n2. מוצרים</code>")
+    lines.append("\nאו כתוב <b>סיים</b> ליצור בלי השלמה.")
     return "\n".join(lines)

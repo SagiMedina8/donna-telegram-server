@@ -1,6 +1,6 @@
 """
-Donna Agent — Commands
-All command handlers, creation flows, cron, natural chat, and callbacks.
+Donna Agent — Commands v2
+Menu, creation flows, cron, natural chat, callbacks.
 """
 import uuid
 from datetime import datetime, timedelta
@@ -16,6 +16,77 @@ from config import (
     DB_NAME_MAP, donna_says,
 )
 
+
+# ═══════════════════════════════════════════════════
+#  MENU
+# ═══════════════════════════════════════════════════
+
+def cmd_start(chat_id: int):
+    tg.send_main_menu(chat_id, "💅 <b>היי, אני דונה.</b>\nאני תמיד צעד אחד לפניך.\n\nבחר קטגוריה או פשוט כתוב לי:")
+
+
+def handle_menu_callback(callback_id: str, data: str, chat_id: int):
+    """Handle menu:* and action:* callbacks."""
+    tg.answer_callback(callback_id)
+
+    if data == "menu:back":
+        cmd_start(chat_id)
+        return
+    if data == "menu:people":
+        tg.send_sub_menu(chat_id, "people")
+        return
+    if data == "menu:meetings":
+        tg.send_sub_menu(chat_id, "meetings")
+        return
+    if data == "menu:tasks":
+        tg.send_sub_menu(chat_id, "tasks")
+        return
+    if data == "menu:today":
+        cmd_today(chat_id)
+        return
+    if data == "menu:help":
+        cmd_help(chat_id)
+        return
+
+    # Actions that need text input → set context and prompt
+    if data == "action:search_person":
+        state.set_context(chat_id, "awaiting_input", "search_person")
+        tg.send(chat_id, "🔍 כתוב את שם האדם לחיפוש:")
+        return
+    if data == "action:add_person":
+        state.set_context(chat_id, "awaiting_input", "add_person")
+        tg.send(chat_id, "➕ כתוב שם ופרטים, למשל:\n<i>שיר גל, מנהלת מכירות במחלקת Salesforce</i>")
+        return
+    if data == "action:add_people_batch":
+        state.set_context(chat_id, "awaiting_input", "add_people_batch")
+        tg.send(chat_id, "👥 כתוב את כל השמות ומאפיינים משותפים, למשל:\n<i>דני כהן, שיר לוי, רון אברהם — צוות פיתוח, מנהל: עידן, תפקיד: מפתח</i>")
+        return
+    if data == "action:search_meeting":
+        state.set_context(chat_id, "awaiting_input", "search_meeting")
+        tg.send(chat_id, "🔍 כתוב שם פגישה או שעה (למשל: 14:00):")
+        return
+    if data == "action:add_meeting":
+        state.set_context(chat_id, "awaiting_input", "add_meeting")
+        tg.send(chat_id, "➕ כתוב פרטי פגישה, למשל:\n<i>פגישה עם אלירן מחר ב-11, סינכרון שבועי</i>")
+        return
+    if data == "action:today":
+        cmd_today(chat_id)
+        return
+    if data == "action:tomorrow":
+        cmd_tomorrow(chat_id)
+        return
+    if data == "action:open_tasks":
+        cmd_my_tasks(chat_id, "")
+        return
+    if data == "action:today_tasks":
+        cmd_my_tasks(chat_id, "היום")
+        return
+    if data == "action:add_task":
+        state.set_context(chat_id, "awaiting_input", "add_task")
+        tg.send(chat_id, "➕ כתוב משימה, למשל:\n<i>לשלוח מייל לנורית עד יום ראשון</i>")
+        return
+
+
 # ═══════════════════════════════════════════════════
 #  READ COMMANDS
 # ═══════════════════════════════════════════════════
@@ -29,15 +100,12 @@ def cmd_who(chat_id: int, name: str):
     except Exception as e:
         tg.send(chat_id, f"{donna_says('error')}\n{e}")
         return
-
     if not matches:
         tg.send(chat_id, donna_says("no_results"))
         return
-
     if len(matches) == 1:
         _show_person(chat_id, matches[0])
         return
-
     items = []
     for page in matches[:10]:
         card = notion.get_person_card(page, full=False)
@@ -68,11 +136,9 @@ def _show_meetings(chat_id: int, date_str: str, label: str):
     except Exception as e:
         tg.send(chat_id, f"{donna_says('error')}\n{e}")
         return
-
     if not meetings:
         tg.send(chat_id, f"אין פגישות ל{label} ({date_str}). 📭")
         return
-
     cards = []
     buttons = []
     for page in meetings:
@@ -81,11 +147,8 @@ def _show_meetings(chat_id: int, date_str: str, label: str):
         eid = str(uuid.uuid4())[:8]
         state.EXPAND[eid] = {"page_id": page["id"], "db": "meetings"}
         buttons.append({"text": str(len(buttons) + 1), "callback_data": f"exp_m:{eid}"})
-
     header = f"<b>📅 פגישות {label} ({date_str}):</b>"
-    meeting_list = fmt.format_meetings_list(cards)
-    text = f"{header}\n\n{meeting_list}"
-
+    text = f"{header}\n\n{fmt.format_meetings_list(cards)}"
     rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
     tg.send(chat_id, text, reply_markup={"inline_keyboard": rows} if rows else None)
 
@@ -144,7 +207,6 @@ def _search_meeting_text(chat_id: int, text: str):
 
 
 def cmd_my_tasks(chat_id: int, query: str = ""):
-    """Show open tasks, optionally filtered."""
     try:
         if query.strip() in ("היום", "today"):
             tasks = notion.query_tasks_by_date(notion.today_str())
@@ -153,7 +215,6 @@ def cmd_my_tasks(chat_id: int, query: str = ""):
     except Exception as e:
         tg.send(chat_id, f"{donna_says('error')}\n{e}")
         return
-
     cards = [notion.get_task_card(t) for t in tasks]
     text = fmt.format_tasks_list(cards)
     header = "<b>📋 משימות פתוחות:</b>" if not query.strip() else f"<b>📋 משימות ל{query}:</b>"
@@ -173,18 +234,14 @@ def cmd_digest(chat_id: int, text: str):
     except Exception as e:
         tg.send(chat_id, f"{donna_says('error')}\n{e}")
         return
-
     questions = plan.get("questions", [])
     updates = plan.get("updates", [])
-
     if questions:
         tg.send(chat_id, "❓ שאלות הבהרה:\n- " + "\n- ".join(questions))
-
     high = [u for u in updates if float(u.get("confidence", 0)) >= 0.6]
     if not high:
         tg.send(chat_id, "לא מצאתי עדכון בטוח מספיק. נסה עם שם מלא + פרט ברור.")
         return
-
     for u in high[:3]:
         _propose_update(chat_id, u["person_name"], u["field"], u["op"], u["value"], u["why"])
 
@@ -202,7 +259,6 @@ def _propose_update(chat_id, person_name, field, op, value, why):
         names = [f"- {fmt.format_person_list_item(notion.get_person_card(p, False))}" for p in matches[:5]]
         tg.send(chat_id, "מצאתי כמה. כתוב שם מדויק יותר:\n" + "\n".join(names))
         return
-
     page = matches[0]
     page_id = page["id"]
     page_title = notion.extract_prop(page, "שם") or person_name
@@ -215,7 +271,6 @@ def _propose_update(chat_id, person_name, field, op, value, why):
             new_text = current.strip() + "\n" + value.strip()
     except Exception:
         pass
-
     aid = str(uuid.uuid4())[:8]
     state.PENDING[aid] = {
         "chat_id": chat_id, "kind": "people_update",
@@ -229,8 +284,15 @@ def _propose_update(chat_id, person_name, field, op, value, why):
 #  CREATION
 # ═══════════════════════════════════════════════════
 
+# Fields relevant to each type
+TYPE_FIELDS = {
+    "person": ["role", "department", "domain", "manager", "work_pref", "hobbies", "tips", "notes"],
+    "meeting": ["date_iso", "participants", "purpose"],
+    "task": ["due_date", "priority", "project"],
+}
+
+
 def handle_create(chat_id: int, ctype: str, raw_text: str):
-    """Generic creation handler — person / meeting / task."""
     if not raw_text.strip():
         examples = {
             "person": "דוגמה: תוסיף את שיר גל, מנהלת מכירות במחלקת Salesforce",
@@ -247,14 +309,16 @@ def handle_create(chat_id: int, ctype: str, raw_text: str):
         return
 
     name = parsed.get("name", "").strip()
-    fields = {k: v for k, v in parsed.get("fields", {}).items() if v and v.strip()}
-    missing = parsed.get("missing", [])
+    # Filter only relevant fields for this type
+    allowed = TYPE_FIELDS.get(ctype, [])
+    fields = {k: v for k, v in parsed.get("fields", {}).items() if v and v.strip() and k in allowed}
+    # Filter missing to only relevant fields
+    missing = [m for m in parsed.get("missing", []) if m in allowed]
 
     if not name:
         tg.send(chat_id, "לא הצלחתי לזהות שם. נסה שוב עם יותר פרטים.")
         return
 
-    # Store creation state
     aid = str(uuid.uuid4())[:8]
     state.PENDING[aid] = {
         "chat_id": chat_id, "kind": f"create_{ctype}",
@@ -262,10 +326,9 @@ def handle_create(chat_id: int, ctype: str, raw_text: str):
     }
 
     preview = fmt.format_creation_preview(ctype, name, fields)
-    has_missing = len([m for m in missing if m]) > 0
+    has_missing = len(missing) > 0
 
     if has_missing:
-        # Store for question flow
         state.start_creation(chat_id, ctype, {"name": name, **fields}, missing)
         tg.send(chat_id, preview, reply_markup={
             "inline_keyboard": [
@@ -278,40 +341,116 @@ def handle_create(chat_id: int, ctype: str, raw_text: str):
         tg.send_approval(chat_id, preview, aid)
 
 
+def _ask_all_missing(chat_id: int):
+    """Send ALL missing fields in one message, type-filtered."""
+    flow = state.get_creation(chat_id)
+    if not flow:
+        return
+
+    ctype = flow["type"]
+    # Filter missing to only this type's fields
+    allowed = TYPE_FIELDS.get(ctype, [])
+    missing = [m for m in flow["missing"] if m in allowed]
+    flow["missing"] = missing  # update
+
+    if not missing:
+        _finalize_creation(chat_id)
+        return
+
+    text = fmt.format_missing_questions(ctype, missing)
+    if not text:
+        _finalize_creation(chat_id)
+        return
+
+    state.set_context(chat_id, "creation_fill", ctype, {"missing_fields": missing})
+    tg.send(chat_id, text)
+
+
+def _handle_creation_fill(chat_id: int, text: str):
+    """Parse numbered answers: '1. PM\n2. מוצרים' or 'סיים'."""
+    flow = state.get_creation(chat_id)
+    if not flow:
+        return
+
+    if text.strip() in ("סיים", "סיימי", "יאללה", "done"):
+        _finalize_creation(chat_id)
+        return
+
+    ctype = flow["type"]
+    allowed = TYPE_FIELDS.get(ctype, [])
+    missing = [m for m in flow["missing"] if m in allowed]
+
+    # Parse numbered answers
+    lines = text.strip().split("\n")
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # Try "1. value" or "1: value" or "1 value"
+        parts = None
+        for sep in [". ", ": ", " - ", "- ", " "]:
+            if sep in line:
+                idx_str, val = line.split(sep, 1)
+                idx_str = idx_str.strip().rstrip(".")
+                if idx_str.isdigit():
+                    parts = (int(idx_str), val.strip())
+                    break
+
+        if parts and 1 <= parts[0] <= len(missing):
+            field = missing[parts[0] - 1]
+            state.advance_creation(chat_id, field, parts[1])
+
+    _finalize_creation(chat_id)
+
+
+def _finalize_creation(chat_id: int):
+    """Show final preview and ask for confirmation."""
+    flow = state.get_creation(chat_id)
+    if not flow:
+        return
+
+    ctype = flow["type"]
+    name = flow["data"].get("name", "")
+    allowed = TYPE_FIELDS.get(ctype, [])
+    fields = {k: v for k, v in flow["data"].items() if k in allowed and v and v.strip()}
+
+    aid = str(uuid.uuid4())[:8]
+    state.PENDING[aid] = {
+        "chat_id": chat_id, "kind": f"create_{ctype}",
+        "payload": {"name": name, "fields": fields},
+    }
+
+    preview = fmt.format_creation_preview(ctype, name, fields)
+    state.end_creation(chat_id)
+    state.clear_context(chat_id)
+    tg.send_approval(chat_id, f"{preview}\n\nליצור?", aid)
+
+
 def _execute_creation(chat_id: int, ctype: str, payload: dict):
-    """Actually create the item in Notion."""
     name = payload["name"]
     fields = payload.get("fields", {})
     try:
         if ctype == "person":
-            notion_fields = {}
             field_map = {
                 "role": "תפקיד", "department": "מחלקה", "domain": "תחום",
                 "manager": "מנהל ישיר", "work_pref": "אופן עבודה מועדף",
                 "hobbies": "תחביבים ותחומי עניין", "tips": "טיפים להכנה", "notes": "הערות אישיות",
             }
-            for eng, heb in field_map.items():
-                val = fields.get(eng, "")
-                if val: notion_fields[heb] = val
+            notion_fields = {heb: fields[eng] for eng, heb in field_map.items() if fields.get(eng)}
             notion.create_person(name, notion_fields)
 
         elif ctype == "meeting":
             date_iso = fields.get("date_iso", "")
-            meeting_fields = {}
-            if fields.get("participants"):
-                meeting_fields["משתתפים"] = fields["participants"]
-            if fields.get("purpose"):
-                meeting_fields["מטרה"] = fields["purpose"]
-            notion.create_meeting(name, date_iso, meeting_fields)
+            mf = {}
+            if fields.get("participants"): mf["משתתפים"] = fields["participants"]
+            if fields.get("purpose"): mf["מטרה"] = fields["purpose"]
+            notion.create_meeting(name, date_iso, mf)
 
         elif ctype == "task":
-            due_date = fields.get("due_date", "")
-            priority = fields.get("priority", "")
-            project_name = fields.get("project", "")
             project_id = ""
-            if project_name:
-                project_id = notion.find_project_id(project_name) or ""
-            notion.create_task(name, due_date, priority, project_id)
+            if fields.get("project"):
+                project_id = notion.find_project_id(fields["project"]) or ""
+            notion.create_task(name, fields.get("due_date", ""), fields.get("priority", ""), project_id)
 
         tg.send(chat_id, f"{donna_says('creation')}\n<b>{name}</b> נוצר בהצלחה.")
 
@@ -319,32 +458,85 @@ def _execute_creation(chat_id: int, ctype: str, payload: dict):
         tg.send(chat_id, f"{donna_says('error')}\n{e}")
 
 
-def _ask_next_question(chat_id: int):
-    """Ask the next missing field in a creation flow."""
-    flow = state.get_creation(chat_id)
-    if not flow or not flow["missing"]:
-        # No more questions — offer to create
-        aid = str(uuid.uuid4())[:8]
-        state.PENDING[aid] = {
-            "chat_id": chat_id, "kind": f"create_{flow['type']}",
-            "payload": {"name": flow["data"].get("name", ""), "fields": flow["data"]},
-        }
-        state.end_creation(chat_id)
-        tg.send_approval(chat_id, "סיימנו! ליצור?", aid)
+# ═══════════════════════════════════════════════════
+#  BATCH CREATION (Multiple people)
+# ═══════════════════════════════════════════════════
+
+def handle_batch_people(chat_id: int, text: str):
+    """Parse 'דני כהן, שיר לוי, רון אברהם — צוות פיתוח, מנהל: עידן, תפקיד: מפתח'"""
+    if "—" in text:
+        names_part, attrs_part = text.split("—", 1)
+    elif "-" in text and "," in text.split("-", 1)[0]:
+        names_part, attrs_part = text.split("-", 1)
+    else:
+        names_part = text
+        attrs_part = ""
+
+    names = [n.strip() for n in names_part.split(",") if n.strip()]
+    if not names:
+        tg.send(chat_id, "לא זיהיתי שמות. כתוב שמות מופרדים בפסיק.")
         return
 
-    field = flow["missing"][0]
-    question_map = {
-        "role": "מה התפקיד?", "department": "באיזו מחלקה?", "domain": "מה התחום?",
-        "manager": "מי המנהל הישיר?", "work_pref": "איך העדפת עבודה שלהם?",
-        "hobbies": "תחביבים ותחומי עניין?", "tips": "טיפים להכנה לפגישה?",
-        "notes": "הערות נוספות?",
-        "date_iso": "מתי? (תאריך ושעה)", "participants": "מי המשתתפים?", "purpose": "מה מטרת הפגישה?",
-        "due_date": "מה הדדליין?", "priority": "עדיפות? (גבוהה/בינונית/נמוכה)", "project": "לאיזה פרויקט?",
+    # Parse shared attributes
+    shared = {}
+    attr_map = {
+        "תפקיד": "תפקיד", "role": "תפקיד",
+        "מחלקה": "מחלקה", "dept": "מחלקה", "department": "מחלקה",
+        "צוות": "מחלקה", "team": "מחלקה",
+        "מנהל": "מנהל ישיר", "manager": "מנהל ישיר",
+        "תחום": "תחום", "domain": "תחום",
     }
-    q = question_map.get(field, f"מה ה-{field}?")
-    state.set_context(chat_id, "creation_answer", field)
-    tg.send(chat_id, f"❓ {q}\n<i>(או כתוב 'דלג' לדלג)</i>")
+    if attrs_part:
+        for attr in attrs_part.split(","):
+            attr = attr.strip()
+            if ":" in attr:
+                key, val = attr.split(":", 1)
+                key = key.strip().lower()
+                val = val.strip()
+                notion_field = attr_map.get(key, "")
+                if notion_field:
+                    shared[notion_field] = val
+            else:
+                # No colon — guess it's a team/department
+                shared["מחלקה"] = attr.strip()
+
+    # Preview
+    lines = [f"<b>👥 הוספת {len(names)} אנשים:</b>\n"]
+    for n in names:
+        lines.append(f"• {n}")
+    if shared:
+        lines.append("\n<b>מאפיינים משותפים:</b>")
+        for k, v in shared.items():
+            lines.append(f"  {k}: {v}")
+
+    aid = str(uuid.uuid4())[:8]
+    state.PENDING[aid] = {
+        "chat_id": chat_id, "kind": "batch_people",
+        "payload": {"names": names, "shared": shared},
+    }
+    tg.send_approval(chat_id, "\n".join(lines), aid)
+
+
+def _execute_batch_people(chat_id: int, payload: dict):
+    names = payload["names"]
+    shared = payload.get("shared", {})
+    created = []
+    errors = []
+    for name in names:
+        try:
+            notion.create_person(name, shared)
+            created.append(name)
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+
+    msg = f"{donna_says('creation')}\n\n✅ נוצרו {len(created)} אנשים:"
+    for n in created:
+        msg += f"\n• {n}"
+    if errors:
+        msg += f"\n\n❌ שגיאות:"
+        for e in errors:
+            msg += f"\n• {e}"
+    tg.send(chat_id, msg)
 
 
 # ═══════════════════════════════════════════════════
@@ -358,8 +550,6 @@ def send_morning_brief(chat_id: int):
     except Exception as e:
         tg.send(chat_id, f"{donna_says('error')}\n{e}")
         return
-
-    # Tasks due today
     try:
         tasks = notion.query_tasks_by_date(today)
     except Exception:
@@ -380,15 +570,11 @@ def send_morning_brief(chat_id: int):
             time_part = date.split("T")[1][:5] if "T" in date else ""
             participants = card.get("משתתפים", "")
             purpose = card.get("מטרה", "")
-
             lines.append(f"\n<b>{i}. {name}</b>{'  🕐 ' + time_part if time_part else ''}")
             if participants: lines.append(f"   👥 {participants}")
             if purpose: lines.append(f"   🎯 {purpose}")
-
-            # Participant recaps
             if participants:
-                names = [n.strip() for n in participants.replace("،", ",").split(",")]
-                for pname in names[:4]:
+                for pname in [n.strip() for n in participants.replace("،", ",").split(",")][:4]:
                     if not pname: continue
                     try:
                         people = notion.query_people(pname, limit=1)
@@ -420,12 +606,10 @@ def check_ended_meetings(chat_id: int):
     tz = ZoneInfo(TIMEZONE)
     now = datetime.now(tz)
     today = now.strftime("%Y-%m-%d")
-
     try:
         meetings = notion.query_meetings_by_date(today)
     except Exception:
         return
-
     for page in meetings:
         page_id = page["id"]
         if state.was_followed_up(page_id):
@@ -438,20 +622,17 @@ def check_ended_meetings(chat_id: int):
             end = start + timedelta(minutes=30)
         except Exception:
             continue
-
         if end <= now <= end + timedelta(minutes=15):
             state.mark_followed_up(page_id, today)
             name = notion.extract_prop(page, "Name")
             participants = notion.extract_prop(page, "משתתפים")
-
             msg = donna_says("followup")
             msg += f"\n\n<b>{name}</b> הסתיימה."
             if participants: msg += f"\n👥 עם: {participants}"
             msg += "\n\nמה היה? תובנות? משימות? פשוט כתוב ואני אעדכן."
-
             tg.send(chat_id, msg)
             state.set_context(chat_id, "followup", name)
-            return  # one at a time
+            return
 
 
 # ═══════════════════════════════════════════════════
@@ -459,17 +640,29 @@ def check_ended_meetings(chat_id: int):
 # ═══════════════════════════════════════════════════
 
 def handle_natural_text(chat_id: int, text: str):
-    # Check if we're in a creation Q&A flow
-    flow = state.get_creation(chat_id)
     ctx = state.get_context(chat_id)
-    if flow and ctx and ctx.get("topic") == "creation_answer":
-        field = ctx.get("entity", "")
-        if text.strip() in ("דלג", "דלג/י", "skip"):
-            if field in flow["missing"]:
-                flow["missing"].remove(field)
-        else:
-            state.advance_creation(chat_id, field, text.strip())
-        _ask_next_question(chat_id)
+
+    # Check if in creation fill mode (answering numbered questions)
+    if ctx and ctx.get("topic") == "creation_fill":
+        _handle_creation_fill(chat_id, text)
+        return
+
+    # Check if awaiting input from menu button
+    if ctx and ctx.get("topic") == "awaiting_input":
+        action = ctx.get("entity", "")
+        state.clear_context(chat_id)
+        if action == "search_person":
+            cmd_who(chat_id, text)
+        elif action == "add_person":
+            handle_create(chat_id, "person", text)
+        elif action == "add_people_batch":
+            handle_batch_people(chat_id, text)
+        elif action == "search_meeting":
+            cmd_meeting(chat_id, text)
+        elif action == "add_meeting":
+            handle_create(chat_id, "meeting", text)
+        elif action == "add_task":
+            handle_create(chat_id, "task", text)
         return
 
     # Classify intent via LLM
@@ -485,41 +678,30 @@ def handle_natural_text(chat_id: int, text: str):
     if intent == "who":
         state.set_context(chat_id, "person", entity)
         cmd_who(chat_id, entity)
-
     elif intent == "today":
         cmd_today(chat_id)
-
     elif intent == "tomorrow":
         cmd_tomorrow(chat_id)
-
     elif intent == "meeting":
         state.set_context(chat_id, "meeting", entity)
         cmd_meeting(chat_id, entity)
-
     elif intent == "my_tasks":
         cmd_my_tasks(chat_id, entity)
-
     elif intent == "digest" or intent == "followup_answer":
         if ctx and ctx.get("topic") == "followup":
             text = f"סיכום פגישה '{ctx.get('entity', '')}': {text}"
         state.set_context(chat_id, "digest", entity)
         cmd_digest(chat_id, text)
-
     elif intent == "create_person":
         handle_create(chat_id, "person", entity or text)
-
     elif intent == "create_meeting":
         handle_create(chat_id, "meeting", entity or text)
-
     elif intent == "create_task":
         handle_create(chat_id, "task", entity or text)
-
     elif intent == "help":
         cmd_help(chat_id)
-
     elif intent == "chat":
         _handle_chat(chat_id, text)
-
     else:
         if ctx and ctx.get("topic") == "person":
             cmd_who(chat_id, ctx.get("entity", ""))
@@ -572,13 +754,9 @@ def cmd_schema(chat_id: int, target: str):
 def cmd_status(chat_id: int):
     from config import NOTION_PEOPLE_DB_ID, NOTION_MEETINGS_DB_ID, NOTION_PROJECTS_DB_ID, NOTION_TASKS_DB_ID
     checks = {
-        "TELEGRAM": True,
-        "NOTION": bool(NOTION_TOKEN),
-        "OPENAI": bool(OPENAI_API_KEY),
-        "PEOPLE_DB": bool(NOTION_PEOPLE_DB_ID),
-        "MEETINGS_DB": bool(NOTION_MEETINGS_DB_ID),
-        "PROJECTS_DB": bool(NOTION_PROJECTS_DB_ID),
-        "TASKS_DB": bool(NOTION_TASKS_DB_ID),
+        "TELEGRAM": True, "NOTION": bool(NOTION_TOKEN), "OPENAI": bool(OPENAI_API_KEY),
+        "PEOPLE_DB": bool(NOTION_PEOPLE_DB_ID), "MEETINGS_DB": bool(NOTION_MEETINGS_DB_ID),
+        "PROJECTS_DB": bool(NOTION_PROJECTS_DB_ID), "TASKS_DB": bool(NOTION_TASKS_DB_ID),
         "OWNER_CHAT_ID": bool(OWNER_CHAT_ID),
     }
     lines = [f"{'✅' if v else '❌'} {k}" for k, v in checks.items()]
@@ -596,23 +774,20 @@ def cmd_help(chat_id: int):
 /מי &lt;שם&gt; — כרטיס אדם
 /היום — פגישות היום
 /מחר — פגישות מחר
-/פגישה &lt;שעה/טקסט&gt; — חיפוש פגישה
+/פגישה &lt;שעה/טקסט&gt; — חיפוש
 /משימות — משימות פתוחות
 
 <b>✏️ עדכון:</b>
-/סיכום &lt;טקסט&gt; — ניתוח טקסט ועדכון People
+/סיכום &lt;טקסט&gt; — ניתוח ועדכון People
 
 <b>🆕 יצירה:</b>
-/אדם_חדש &lt;טקסט&gt; — הוסף אדם
-/פגישה_חדשה &lt;טקסט&gt; — צור פגישה
-/משימה_חדשה &lt;טקסט&gt; — צור משימה
+/אדם_חדש · /פגישה_חדשה · /משימה_חדשה
 
 <b>💬 או פשוט תדבר איתי:</b>
-"מי זה אלירן?" · "מה יש לי מחר?"
-"תוסיף את שיר גל, PM" · "תזכיר לי לשלוח מייל"
+"מי זה אלירן?" · "מה יש מחר?"
+"תוסיף משימה..." · "תזכיר לי..."
 
-<b>⚙️ מערכת:</b>
-/סטטוס · /schema · /עזרה"""
+<b>📌 תפריט:</b> /start"""
     tg.send(chat_id, text)
 
 
@@ -621,6 +796,11 @@ def cmd_help(chat_id: int):
 # ═══════════════════════════════════════════════════
 
 def handle_callback(callback_id: str, data: str, chat_id: int):
+
+    # Menu / Action
+    if data.startswith("menu:") or data.startswith("action:"):
+        handle_menu_callback(callback_id, data, chat_id)
+        return
 
     # Expand person
     if data.startswith("exp_p:"):
@@ -656,12 +836,12 @@ def handle_callback(callback_id: str, data: str, chat_id: int):
             tg.send(chat_id, f"שגיאה: {e}")
         return
 
-    # Ask more questions (creation flow)
+    # Ask more questions (creation flow) — all at once
     if data.startswith("ask_more:"):
         aid = data.split(":", 1)[1]
-        state.PENDING.pop(aid, None)  # remove pending approval
+        state.PENDING.pop(aid, None)
         tg.answer_callback(callback_id, "שואלת...")
-        _ask_next_question(chat_id)
+        _ask_all_missing(chat_id)
         return
 
     # Approve / Reject
@@ -679,7 +859,6 @@ def handle_callback(callback_id: str, data: str, chat_id: int):
             state.end_creation(chat_id)
             return
 
-        # Approve
         tg.answer_callback(callback_id, "מאושר")
         kind = item.get("kind", "")
         payload = item.get("payload", {})
@@ -688,17 +867,16 @@ def handle_callback(callback_id: str, data: str, chat_id: int):
             if kind == "people_update":
                 notion.update_person_field(payload["page_id"], payload["field"], payload["new_text"])
                 tg.send(chat_id, f"{donna_says('approval')}\nעדכנתי: {payload.get('page_title','')}\nשדה: {payload['field']}")
-
+            elif kind == "batch_people":
+                _execute_batch_people(chat_id, payload)
             elif kind.startswith("create_"):
                 ctype = kind.replace("create_", "")
                 _execute_creation(chat_id, ctype, payload)
                 state.end_creation(chat_id)
-
             else:
                 tg.send(chat_id, donna_says("approval"))
         except Exception as e:
             tg.send(chat_id, f"{donna_says('error')}\n{e}")
         return
 
-    # Unknown
     tg.answer_callback(callback_id, "לא מזוהה")

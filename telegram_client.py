@@ -1,6 +1,5 @@
 """
 Donna Agent — Telegram Client
-Send messages, buttons, and handle callbacks.
 """
 import json
 import requests
@@ -50,12 +49,77 @@ def send_approval(chat_id: int, text: str, approval_id: str):
 
 
 def send_choice(chat_id: int, text: str, choices: list[dict]):
-    """Send message with custom choice buttons.
-    choices: [{"text": "...", "callback_data": "..."}]
-    """
     rows = [[c] for c in choices]
     send(chat_id, text, reply_markup={"inline_keyboard": rows})
 
 
 def answer_callback(callback_query_id: str, text: str = ""):
     tg("answerCallbackQuery", {"callback_query_id": callback_query_id, "text": text})
+
+
+# ─── Main Menu ───
+
+def send_main_menu(chat_id: int, greeting: str = ""):
+    text = greeting or "💅 <b>דונה — מה נעשה?</b>\nבחר קטגוריה או פשוט כתוב לי בצ'אט:"
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "👥 אנשים", "callback_data": "menu:people"},
+                {"text": "📅 פגישות", "callback_data": "menu:meetings"},
+                {"text": "📋 משימות", "callback_data": "menu:tasks"},
+            ],
+            [
+                {"text": "📊 סטטוס יום", "callback_data": "menu:today"},
+                {"text": "❓ עזרה", "callback_data": "menu:help"},
+            ],
+        ]
+    }
+    send(chat_id, text, reply_markup=keyboard)
+
+
+def send_sub_menu(chat_id: int, category: str):
+    menus = {
+        "people": {
+            "text": "<b>👥 אנשים</b>\nמה תרצה לעשות?",
+            "buttons": [
+                [
+                    {"text": "🔍 חפש אדם", "callback_data": "action:search_person"},
+                    {"text": "➕ הוסף אדם", "callback_data": "action:add_person"},
+                ],
+                [
+                    {"text": "➕ הוסף כמה אנשים", "callback_data": "action:add_people_batch"},
+                ],
+                [{"text": "🔙 חזרה", "callback_data": "menu:back"}],
+            ]
+        },
+        "meetings": {
+            "text": "<b>📅 פגישות</b>\nמה תרצה לעשות?",
+            "buttons": [
+                [
+                    {"text": "📅 היום", "callback_data": "action:today"},
+                    {"text": "📅 מחר", "callback_data": "action:tomorrow"},
+                ],
+                [
+                    {"text": "🔍 חפש פגישה", "callback_data": "action:search_meeting"},
+                    {"text": "➕ פגישה חדשה", "callback_data": "action:add_meeting"},
+                ],
+                [{"text": "🔙 חזרה", "callback_data": "menu:back"}],
+            ]
+        },
+        "tasks": {
+            "text": "<b>📋 משימות</b>\nמה תרצה לעשות?",
+            "buttons": [
+                [
+                    {"text": "📋 משימות פתוחות", "callback_data": "action:open_tasks"},
+                    {"text": "📋 משימות היום", "callback_data": "action:today_tasks"},
+                ],
+                [
+                    {"text": "➕ משימה חדשה", "callback_data": "action:add_task"},
+                ],
+                [{"text": "🔙 חזרה", "callback_data": "menu:back"}],
+            ]
+        },
+    }
+    menu = menus.get(category)
+    if menu:
+        send(chat_id, menu["text"], reply_markup={"inline_keyboard": menu["buttons"]})

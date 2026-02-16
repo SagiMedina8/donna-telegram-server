@@ -4,7 +4,7 @@ OpenAI Responses API: intent classifier, digest planner, creation parser.
 """
 import json
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from config import OPENAI_API_KEY, OPENAI_MODEL, OPENAI_BASE, ALLOWED_PEOPLE_FIELDS
 
 
@@ -13,21 +13,13 @@ def _headers():
 
 
 def _call(system: str, user: str, schema: dict, schema_name: str, max_tokens: int = 600) -> dict:
-    """Generic OpenAI Responses API call with Structured Outputs."""
     body = {
         "model": OPENAI_MODEL,
         "input": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "text": {
-            "format": {
-                "type": "json_schema",
-                "name": schema_name,
-                "schema": schema,
-                "strict": True,
-            }
-        },
+        "text": {"format": {"type": "json_schema", "name": schema_name, "schema": schema, "strict": True}},
         "max_output_tokens": max_tokens,
     }
     r = requests.post(f"{OPENAI_BASE}/responses", headers=_headers(), json=body, timeout=60)
@@ -43,9 +35,7 @@ def _call(system: str, user: str, schema: dict, schema_name: str, max_tokens: in
     raise RuntimeError("No parsable JSON in OpenAI response")
 
 
-# ═════════════════════════════════════════════
-#  INTENT CLASSIFIER
-# ═════════════════════════════════════════════
+# ═══════════ INTENT CLASSIFIER ═══════════
 
 def classify_intent(user_text: str, context: dict | None = None) -> dict:
     ctx_hint = ""
@@ -88,9 +78,7 @@ raw = הטקסט המקורי."""
     return _call(system, user_text, schema, "IntentClassification", 150)
 
 
-# ═════════════════════════════════════════════
-#  DIGEST (People updates)
-# ═════════════════════════════════════════════
+# ═══════════ DIGEST ═══════════
 
 def digest_to_plan(user_text: str) -> dict:
     now = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M (%A)")
@@ -99,16 +87,12 @@ def digest_to_plan(user_text: str) -> dict:
 
 כללי מיפוי:
 - "תחביבים ותחומי עניין": ספורט, תחביבים, פנאי
-- "אופן עבודה מועדף": איך אוהבים לתקשר (וואטסאפ, קצר, אסינכרוני)
-- "טיפים להכנה": איך להתכונן לפגישה (להגיע עם מספרים, דמו)
+- "אופן עבודה מועדף": איך אוהבים לתקשר
+- "טיפים להכנה": איך להתכונן לפגישה
 - "הערות אישיות": fallback — רק מה שלא מתאים לשום שדה
-- "תחום": תחום מקצועי
-- "תפקיד": כותרת רשמית
-- "מחלקה": שם מחלקה
-- "מנהל ישיר": שם המנהל
-- "הערות רגישות": מידע רגיש
+- "תחום", "תפקיד", "מחלקה", "מנהל ישיר", "הערות רגישות"
 
-כללים: 1) פצל לשדות שונים 2) הערות אישיות=fallback בלבד 3) confidence 0-1, <0.6=שאל 4) op: append/set"""
+כללים: 1) פצל לשדות 2) הערות אישיות=fallback 3) confidence 0-1, <0.6=שאל 4) op: append/set"""
 
     schema = {
         "type": "object", "additionalProperties": False,
@@ -132,18 +116,12 @@ def digest_to_plan(user_text: str) -> dict:
     return _call(system, user_text, schema, "DonnaDigestPlan", 800)
 
 
-# ═════════════════════════════════════════════
-#  CREATION PARSER
-# ═════════════════════════════════════════════
+# ═══════════ CREATION PARSER ═══════════
 
 def parse_creation(user_text: str, creation_type: str) -> dict:
-    """Parse free text into structured creation data.
-    creation_type: person / meeting / task
-    Returns: {name, fields: {}, missing: []}
-    """
     now = datetime.now(timezone.utc).astimezone()
     today = now.strftime("%Y-%m-%d")
-    tomorrow = (now + __import__('datetime').timedelta(days=1)).strftime("%Y-%m-%d")
+    tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
     day_name = now.strftime("%A")
 
     type_instructions = {
@@ -179,20 +157,13 @@ missing = שדות שהמשתמש לא ציין (חוץ מ-name).""",
             "fields": {
                 "type": "object", "additionalProperties": False,
                 "properties": {
-                    "role": {"type": "string"},
-                    "department": {"type": "string"},
-                    "domain": {"type": "string"},
-                    "manager": {"type": "string"},
-                    "work_pref": {"type": "string"},
-                    "hobbies": {"type": "string"},
-                    "tips": {"type": "string"},
-                    "notes": {"type": "string"},
-                    "date_iso": {"type": "string"},
-                    "participants": {"type": "string"},
-                    "purpose": {"type": "string"},
-                    "due_date": {"type": "string"},
-                    "priority": {"type": "string"},
-                    "project": {"type": "string"},
+                    "role": {"type": "string"}, "department": {"type": "string"},
+                    "domain": {"type": "string"}, "manager": {"type": "string"},
+                    "work_pref": {"type": "string"}, "hobbies": {"type": "string"},
+                    "tips": {"type": "string"}, "notes": {"type": "string"},
+                    "date_iso": {"type": "string"}, "participants": {"type": "string"},
+                    "purpose": {"type": "string"}, "due_date": {"type": "string"},
+                    "priority": {"type": "string"}, "project": {"type": "string"},
                 },
                 "required": [
                     "role", "department", "domain", "manager", "work_pref",

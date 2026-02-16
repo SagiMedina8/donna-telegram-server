@@ -1,56 +1,38 @@
 """
 Donna Agent — Configuration
-Environment variables, constants, DB mappings, and Donna's personality.
 """
 import os
 import random
 
-# ---------- Telegram ----------
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
-
-# ---------- Notion ----------
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "")
 NOTION_PEOPLE_DB_ID = os.environ.get("NOTION_PEOPLE_DB_ID", "")
 NOTION_MEETINGS_DB_ID = os.environ.get("NOTION_MEETINGS_DB_ID", "")
 NOTION_PROJECTS_DB_ID = os.environ.get("NOTION_PROJECTS_DB_ID", "")
 NOTION_DONNA_INBOX_DB_ID = os.environ.get("NOTION_DONNA_INBOX_DB_ID", "")
 NOTION_TASKS_DB_ID = os.environ.get("NOTION_TASKS_DB_ID", "")
-
 NOTION_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
-
-# ---------- OpenAI ----------
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_BASE = "https://api.openai.com/v1"
-
-# ---------- Owner ----------
 OWNER_CHAT_ID = int(os.environ.get("OWNER_CHAT_ID", "0"))
-
-# ---------- Timezone ----------
 TIMEZONE = "Asia/Jerusalem"
 
-# ---------- DB name mapping ----------
 DB_NAME_MAP = {
-    "people": NOTION_PEOPLE_DB_ID,
-    "אנשים": NOTION_PEOPLE_DB_ID,
-    "meetings": NOTION_MEETINGS_DB_ID,
-    "פגישות": NOTION_MEETINGS_DB_ID,
-    "projects": NOTION_PROJECTS_DB_ID,
-    "פרויקטים": NOTION_PROJECTS_DB_ID,
+    "people": NOTION_PEOPLE_DB_ID, "אנשים": NOTION_PEOPLE_DB_ID,
+    "meetings": NOTION_MEETINGS_DB_ID, "פגישות": NOTION_MEETINGS_DB_ID,
+    "projects": NOTION_PROJECTS_DB_ID, "פרויקטים": NOTION_PROJECTS_DB_ID,
     "inbox": NOTION_DONNA_INBOX_DB_ID,
-    "tasks": NOTION_TASKS_DB_ID,
-    "משימות": NOTION_TASKS_DB_ID,
+    "tasks": NOTION_TASKS_DB_ID, "משימות": NOTION_TASKS_DB_ID,
 }
 
-# ---------- Allowed fields for LLM updates (People DB) ----------
 ALLOWED_PEOPLE_FIELDS = [
     "טיפים להכנה", "הערות אישיות", "תחביבים ותחומי עניין",
     "אופן עבודה מועדף", "הערות רגישות", "תחום", "תפקיד",
     "מחלקה", "מנהל ישיר",
 ]
 
-# ---------- Donna Quotes ----------
 DONNA_QUOTES = {
     "morning": [
         "☀️ בוקר טוב! אם זה חשוב — נמצא דרך.",
@@ -104,11 +86,9 @@ DONNA_QUOTES = {
     ],
 }
 
-
 def donna_says(category: str) -> str:
     quotes = DONNA_QUOTES.get(category, DONNA_QUOTES["wisdom"])
     return random.choice(quotes)
-
 
 def validate_env():
     missing = []
